@@ -1,7 +1,5 @@
 "use client"
 
-import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
@@ -26,7 +24,6 @@ import {
   Award,
   Trophy,
   Mail,
-  Phone,
   MapPin,
   Star,
   Search,
@@ -36,9 +33,11 @@ import {
   XCircle,
   Loader2,
   Gift,
-  Send,
   Crown,
   IndianRupee,
+  Clock,
+  Eye,
+  FileText,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -75,6 +74,7 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
   const [showBrixDialog, setShowBrixDialog] = useState(false)
   const [showEmailDialog, setShowEmailDialog] = useState(false)
   const [showBestAgentDialog, setShowBestAgentDialog] = useState(false)
+  const [showKycDialog, setShowKycDialog] = useState(false)
   const [brixPoints, setBrixPoints] = useState("")
   const [brixReason, setBrixReason] = useState("")
   const [emailTemplate, setEmailTemplate] = useState("")
@@ -88,7 +88,8 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
       !searchQuery ||
       agent.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       agent.agency_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agent.city?.toLowerCase().includes(searchQuery.toLowerCase())
+      agent.city?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      agent.email?.toLowerCase().includes(searchQuery.toLowerCase())
 
     const matchesRegion = regionFilter === "all" || agent.region === regionFilter
     const matchesStatus = statusFilter === "all" || agent.status === statusFilter
@@ -136,7 +137,6 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
   }
 
   const handleSendEmail = async () => {
-    // Email sending would be implemented here
     alert("Email functionality requires SMTP configuration in Settings")
     setShowEmailDialog(false)
   }
@@ -150,8 +150,15 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
     setEmailTemplate(templateId)
   }
 
+  const brixPresets = [
+    { amount: 50, label: "Small Bonus" },
+    { amount: 100, label: "Property Listed" },
+    { amount: 200, label: "Deal Closed" },
+    { amount: 500, label: "Best Agent" },
+  ]
+
   return (
-    <div className="p-6 lg:p-8">
+    <div className="p-4 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -232,7 +239,7 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
                     <Avatar className="h-20 w-20 border-4 border-amber-500">
                       <AvatarImage src={bestAgent.profile_image || ""} />
                       <AvatarFallback className="text-2xl bg-amber-500 text-white">
-                        {bestAgent.name?.charAt(0) || "A"}
+                        {bestAgent.name?.charAt(0) || bestAgent.agency_name?.charAt(0) || "A"}
                       </AvatarFallback>
                     </Avatar>
                     <Crown className="absolute -top-2 -right-2 h-8 w-8 text-amber-500 fill-amber-500" />
@@ -264,7 +271,7 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search agents by name, agency, or city..."
+                  placeholder="Search agents by name, agency, city, or email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -316,17 +323,17 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  transition={{ delay: index * 0.05 }}
+                  transition={{ delay: index * 0.03 }}
                 >
                   <Card className={`overflow-hidden ${agent.is_best_agent ? "ring-2 ring-amber-500" : ""}`}>
-                    <CardContent className="p-6">
-                      <div className="flex flex-col lg:flex-row lg:items-center gap-6">
+                    <CardContent className="p-4 md:p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
                         {/* Avatar & Basic Info */}
                         <div className="flex items-center gap-4 flex-1">
                           <div className="relative">
-                            <Avatar className="h-16 w-16">
+                            <Avatar className="h-14 w-14">
                               <AvatarImage src={agent.profile_image || ""} />
-                              <AvatarFallback className="text-xl">
+                              <AvatarFallback className="text-lg">
                                 {agent.name?.charAt(0) || agent.agency_name?.charAt(0) || "A"}
                               </AvatarFallback>
                             </Avatar>
@@ -334,9 +341,11 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
                               <Crown className="absolute -top-1 -right-1 h-5 w-5 text-amber-500 fill-amber-500" />
                             )}
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-lg">{agent.name || agent.agency_name}</h3>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-base truncate">
+                                {agent.name || agent.agency_name || "Unknown"}
+                              </h3>
                               <Badge
                                 variant={
                                   agent.status === "approved"
@@ -345,23 +354,27 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
                                       ? "destructive"
                                       : "secondary"
                                 }
+                                className="text-xs"
                               >
                                 {agent.status}
                               </Badge>
-                              {agent.is_best_agent && <Badge className="bg-amber-500">Best Agent</Badge>}
+                              {agent.is_best_agent && <Badge className="bg-amber-500 text-xs">Best Agent</Badge>}
                             </div>
                             {agent.agency_name && agent.name && (
-                              <p className="text-sm text-muted-foreground">{agent.agency_name}</p>
+                              <p className="text-sm text-muted-foreground truncate">{agent.agency_name}</p>
                             )}
-                            <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
-                                {agent.city}, {agent.region}
-                              </span>
-                              {agent.phone && (
+                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+                              {agent.city && (
                                 <span className="flex items-center gap-1">
-                                  <Phone className="h-3 w-3" />
-                                  {agent.phone}
+                                  <MapPin className="h-3 w-3" />
+                                  {agent.city}
+                                  {agent.region && `, ${agent.region}`}
+                                </span>
+                              )}
+                              {agent.email && (
+                                <span className="flex items-center gap-1 truncate max-w-[180px]">
+                                  <Mail className="h-3 w-3" />
+                                  {agent.email}
                                 </span>
                               )}
                             </div>
@@ -369,27 +382,27 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
                         </div>
 
                         {/* Stats */}
-                        <div className="flex items-center gap-6">
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-primary">{agent.total_listings}</div>
+                        <div className="flex items-center gap-4 lg:gap-6 overflow-x-auto pb-2 lg:pb-0">
+                          <div className="text-center min-w-[50px]">
+                            <div className="text-xl font-bold text-primary">{agent.total_listings || 0}</div>
                             <p className="text-xs text-muted-foreground">Listings</p>
                           </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-blue-500">{agent.total_leads}</div>
+                          <div className="text-center min-w-[50px]">
+                            <div className="text-xl font-bold text-blue-500">{agent.total_leads || 0}</div>
                             <p className="text-xs text-muted-foreground">Leads</p>
                           </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-green-500">{agent.total_views}</div>
+                          <div className="text-center min-w-[50px]">
+                            <div className="text-xl font-bold text-green-500">{agent.total_views || 0}</div>
                             <p className="text-xs text-muted-foreground">Views</p>
                           </div>
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-amber-500">{agent.brix_points}</div>
+                          <div className="text-center min-w-[50px]">
+                            <div className="text-xl font-bold text-amber-500">{agent.brix_points || 0}</div>
                             <p className="text-xs text-muted-foreground">Brix</p>
                           </div>
-                          <div className="text-center">
+                          <div className="text-center min-w-[60px]">
                             <div className="flex items-center justify-center gap-1">
                               <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                              <span className="text-xl font-bold">{agent.rating?.toFixed(1) || "0.0"}</span>
+                              <span className="text-lg font-bold">{agent.rating?.toFixed(1) || "0.0"}</span>
                             </div>
                             <p className="text-xs text-muted-foreground">{agent.review_count || 0} reviews</p>
                           </div>
@@ -403,6 +416,17 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48">
+                            {agent.kyc_document_url && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedAgent(agent)
+                                  setShowKycDialog(true)
+                                }}
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                View KYC Documents
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               onClick={() => {
                                 setSelectedAgent(agent)
@@ -468,183 +492,227 @@ export function AgentsAdminClient({ agents: initialAgents, stats, regions, email
             )}
           </AnimatePresence>
         </div>
-
-        {/* Award Brix Dialog */}
-        <Dialog open={showBrixDialog} onOpenChange={setShowBrixDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Gift className="h-5 w-5 text-amber-500" />
-                Award Brix Points
-              </DialogTitle>
-              <DialogDescription>
-                Reward {selectedAgent?.name || selectedAgent?.agency_name} with Brix points for their performance.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div>
-                <Label htmlFor="points">Points to Award</Label>
-                <Input
-                  id="points"
-                  type="number"
-                  value={brixPoints}
-                  onChange={(e) => setBrixPoints(e.target.value)}
-                  placeholder="e.g., 100"
-                />
-              </div>
-              <div>
-                <Label htmlFor="reason">Reason</Label>
-                <Textarea
-                  id="reason"
-                  value={brixReason}
-                  onChange={(e) => setBrixReason(e.target.value)}
-                  placeholder="e.g., Excellent performance in December"
-                />
-              </div>
-              <div className="flex gap-2">
-                {[50, 100, 200, 500].map((points) => (
-                  <Button key={points} variant="outline" size="sm" onClick={() => setBrixPoints(points.toString())}>
-                    +{points}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowBrixDialog(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleAwardBrix} disabled={isSubmitting || !brixPoints || !brixReason}>
-                {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Gift className="h-4 w-4 mr-2" />}
-                Award Points
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Send Email Dialog */}
-        <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5 text-blue-500" />
-                Send Email to {selectedAgent?.name || selectedAgent?.agency_name}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div>
-                <Label>Email Template</Label>
-                <Select value={emailTemplate} onValueChange={handleSelectTemplate}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a template or write custom" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {emailTemplates.map((template) => (
-                      <SelectItem key={template.id} value={template.id}>
-                        {template.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="subject">Subject</Label>
-                <Input
-                  id="subject"
-                  value={emailSubject}
-                  onChange={(e) => setEmailSubject(e.target.value)}
-                  placeholder="Email subject"
-                />
-              </div>
-              <div>
-                <Label htmlFor="body">Message</Label>
-                <Textarea
-                  id="body"
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  placeholder="Email body..."
-                  rows={8}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowEmailDialog(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSendEmail} disabled={!emailSubject || !emailBody}>
-                <Send className="h-4 w-4 mr-2" />
-                Send Email
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Best Agent Dialog */}
-        <Dialog open={showBestAgentDialog} onOpenChange={setShowBestAgentDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Trophy className="h-5 w-5 text-amber-500" />
-                Set Best Agent of the Month
-              </DialogTitle>
-              <DialogDescription>
-                Award {selectedAgent?.name || selectedAgent?.agency_name} as the Best Agent of the Month? They will
-                receive a badge and 500 bonus Brix points.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Card className="bg-gradient-to-r from-amber-500/10 to-orange-500/10">
-                <CardContent className="p-4 text-center">
-                  <Crown className="h-12 w-12 mx-auto mb-2 text-amber-500" />
-                  <h3 className="font-bold text-lg">{selectedAgent?.name || selectedAgent?.agency_name}</h3>
-                  <p className="text-muted-foreground">
-                    {selectedAgent?.city}, {selectedAgent?.region}
-                  </p>
-                  <div className="mt-4 flex justify-center gap-4">
-                    <div>
-                      <div className="font-bold">{selectedAgent?.total_listings}</div>
-                      <p className="text-xs text-muted-foreground">Listings</p>
-                    </div>
-                    <div>
-                      <div className="font-bold">{selectedAgent?.brix_points}</div>
-                      <p className="text-xs text-muted-foreground">Brix</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowBestAgentDialog(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSetBestAgent} disabled={isSubmitting} className="bg-amber-500 hover:bg-amber-600">
-                {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trophy className="h-4 w-4 mr-2" />}
-                Confirm
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
-    </div>
-  )
-}
 
-// Add Clock icon that was missing
-function Clock(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <polyline points="12 6 12 12 16 14" />
-    </svg>
+      {/* Award Brix Dialog */}
+      <Dialog open={showBrixDialog} onOpenChange={setShowBrixDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Award Brix Points</DialogTitle>
+            <DialogDescription>
+              Reward {selectedAgent?.name || selectedAgent?.agency_name} with Brix points for their performance.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {brixPresets.map((preset) => (
+                <Button
+                  key={preset.amount}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setBrixPoints(preset.amount.toString())
+                    setBrixReason(preset.label)
+                  }}
+                  className="bg-transparent"
+                >
+                  +{preset.amount} ({preset.label})
+                </Button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <Label>Points to Award</Label>
+              <Input
+                type="number"
+                value={brixPoints}
+                onChange={(e) => setBrixPoints(e.target.value)}
+                placeholder="Enter points"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason</Label>
+              <Textarea
+                value={brixReason}
+                onChange={(e) => setBrixReason(e.target.value)}
+                placeholder="Reason for awarding points..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBrixDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAwardBrix} disabled={isSubmitting || !brixPoints || !brixReason}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Award Points
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send Email Dialog */}
+      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Send Email</DialogTitle>
+            <DialogDescription>Send an email to {selectedAgent?.name || selectedAgent?.agency_name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Template</Label>
+              <Select value={emailTemplate} onValueChange={handleSelectTemplate}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a template" />
+                </SelectTrigger>
+                <SelectContent>
+                  {emailTemplates.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>
+                      {template.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Subject</Label>
+              <Input
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder="Email subject"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Message</Label>
+              <Textarea
+                value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                placeholder="Email message..."
+                rows={6}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEmailDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendEmail} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Send Email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Best Agent Dialog */}
+      <Dialog open={showBestAgentDialog} onOpenChange={setShowBestAgentDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set Best Agent of the Month</DialogTitle>
+            <DialogDescription>
+              This will award {selectedAgent?.name || selectedAgent?.agency_name} as the Best Agent of{" "}
+              {new Date().toLocaleString("default", { month: "long", year: "numeric" })} and give them 500 bonus Brix
+              points.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-4 p-4 bg-amber-50 rounded-lg">
+            <Avatar className="h-16 w-16 border-2 border-amber-500">
+              <AvatarImage src={selectedAgent?.profile_image || ""} />
+              <AvatarFallback className="bg-amber-500 text-white text-xl">
+                {selectedAgent?.name?.charAt(0) || "A"}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <h3 className="font-semibold text-lg">{selectedAgent?.name || selectedAgent?.agency_name}</h3>
+              <p className="text-sm text-muted-foreground">
+                {selectedAgent?.city}, {selectedAgent?.region}
+              </p>
+              <p className="text-sm text-amber-600 font-medium mt-1">+500 Brix Points Bonus</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBestAgentDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSetBestAgent} disabled={isSubmitting} className="bg-amber-500 hover:bg-amber-600">
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trophy className="h-4 w-4 mr-2" />}
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showKycDialog} onOpenChange={setShowKycDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>KYC Documents</DialogTitle>
+            <DialogDescription>KYC documents for {selectedAgent?.name || selectedAgent?.agency_name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <Label className="text-muted-foreground">KYC Type</Label>
+                <p className="font-medium capitalize">
+                  {selectedAgent?.kyc_type?.replace("_", " ") || "Not specified"}
+                </p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Status</Label>
+                <Badge variant={selectedAgent?.kyc_verified ? "default" : "secondary"}>
+                  {selectedAgent?.kyc_verified ? "Verified" : "Pending Verification"}
+                </Badge>
+              </div>
+            </div>
+            {selectedAgent?.kyc_document_url && (
+              <div className="space-y-2">
+                <Label>Document</Label>
+                <div className="border rounded-lg overflow-hidden">
+                  <img
+                    src={selectedAgent.kyc_document_url || "/placeholder.svg"}
+                    alt="KYC Document"
+                    className="w-full max-h-[400px] object-contain bg-muted"
+                  />
+                </div>
+                <Button variant="outline" asChild className="w-full bg-transparent">
+                  <a href={selectedAgent.kyc_document_url} target="_blank" rel="noopener noreferrer" download>
+                    <Eye className="h-4 w-4 mr-2" />
+                    Open in New Tab / Download
+                  </a>
+                </Button>
+              </div>
+            )}
+            {selectedAgent?.profile_image && (
+              <div className="space-y-2">
+                <Label>Profile Photo</Label>
+                <div className="border rounded-lg overflow-hidden w-32 h-32">
+                  <img
+                    src={selectedAgent.profile_image || "/placeholder.svg"}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowKycDialog(false)}>
+              Close
+            </Button>
+            {selectedAgent?.status === "pending" && (
+              <Button
+                onClick={() => {
+                  handleStatusChange(selectedAgent.id, "approved")
+                  setShowKycDialog(false)
+                }}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                Approve Agent
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

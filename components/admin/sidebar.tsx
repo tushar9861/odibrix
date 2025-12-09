@@ -19,6 +19,7 @@ import {
   ChevronRight,
   FolderOpen,
   UserCog,
+  Award,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { User } from "@supabase/supabase-js"
@@ -27,6 +28,7 @@ const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/leads", label: "Leads", icon: Users },
   { href: "/admin/agents", label: "Agents", icon: UserCog },
+  { href: "/admin/brix", label: "Brix Points", icon: Award },
   { href: "/admin/properties", label: "Properties", icon: Building2 },
   { href: "/admin/categories", label: "Categories", icon: FolderOpen },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },

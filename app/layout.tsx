@@ -2,7 +2,7 @@ import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Playfair_Display, Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
-import { FloatingActionPanel } from "@/components/ui/floating-action-panel"
+import { FloatingContactPanel } from "@/components/ui/floating-contact-panel"
 import "./globals.css"
 
 const playfair = Playfair_Display({
@@ -83,7 +83,7 @@ export const metadata: Metadata = {
     google: "google-site-verification-code",
   },
   category: "Real Estate",
-    generator: 'v0.app'
+  generator: "v0.app",
 }
 
 export const viewport: Viewport = {
@@ -145,7 +145,7 @@ export default function RootLayout({
       </head>
       <body className={`${playfair.variable} ${inter.variable} font-sans antialiased`}>
         {children}
-        <FloatingActionPanel />
+        <FloatingContactPanel />
         <Analytics />
       </body>
     </html>
