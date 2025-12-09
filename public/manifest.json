@@ -1,0 +1,21 @@
+{
+  "name": "OdiBrix Real Estate",
+  "short_name": "OdiBrix",
+  "description": "Premium real estate services in Odisha",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f5f0",
+  "theme_color": "#1a365d",
+  "icons": [
+    {
+      "src": "/images/odibrix-logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/images/odibrix-logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
