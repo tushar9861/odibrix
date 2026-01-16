@@ -5,17 +5,20 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
 import Image from "next/image"
-import { Loader2, AlertCircle, Home, Briefcase, CheckCircle2 } from "lucide-react"
+import { Loader2, AlertCircle, Home, Briefcase, Building2, CheckCircle2 } from "lucide-react"
 import { ImageUpload } from "@/components/ui/image-upload"
+import { registerAgent } from "@/lib/actions/agents"
+import { registerPropertyOwner } from "@/lib/actions/owners"
 
 const REGIONS = [
   "Bhubaneswar",
@@ -40,9 +43,9 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
-  const [accountType, setAccountType] = useState<"customer" | "agent">("customer")
+  const [accountType, setAccountType] = useState<"customer" | "agent" | "owner">("customer")
   const router = useRouter()
+  const { toast } = useToast()
 
   // Agent-specific fields
   const [agencyName, setAgencyName] = useState("")
@@ -53,6 +56,15 @@ export default function SignUpPage() {
   const [kycType, setKycType] = useState("")
   const [kycDocumentUrl, setKycDocumentUrl] = useState("")
   const [alternatePhone, setAlternatePhone] = useState("")
+
+  // Owner-specific fields
+  const [fullName, setFullName] = useState("")
+  const [address, setAddress] = useState("")
+  const [ownerCity, setOwnerCity] = useState("")
+  const [ownerRegion, setOwnerRegion] = useState("")
+  const [ownerKycType, setOwnerKycType] = useState("")
+  const [ownerKycDocument, setOwnerKycDocument] = useState("")
+  const [propertyPapers, setPropertyPapers] = useState<string[]>([])
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,6 +84,7 @@ export default function SignUpPage() {
       return
     }
 
+    // Validation based on account type
     if (accountType === "agent") {
       if (!profileImage) {
         setError("Profile photo is required for agent registration")
@@ -90,6 +103,24 @@ export default function SignUpPage() {
       }
     }
 
+    if (accountType === "owner") {
+      if (!fullName || !address || !ownerCity || !ownerRegion) {
+        setError("All property owner details are required")
+        setIsLoading(false)
+        return
+      }
+      if (!ownerKycType || !ownerKycDocument) {
+        setError("KYC document is required for property owner registration")
+        setIsLoading(false)
+        return
+      }
+      if (propertyPapers.length === 0) {
+        setError("At least one property document is required")
+        setIsLoading(false)
+        return
+      }
+    }
+
     try {
       // Sign up the user
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -98,308 +129,273 @@ export default function SignUpPage() {
         options: {
           emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/`,
           data: {
-            name: name,
-            phone: phone,
-            role: accountType,
+            name: accountType === "owner" ? fullName : name,
+            account_type: accountType,
           },
         },
       })
 
-      if (authError) throw authError
+      if (authError) {
+        setError(authError.message)
+        setIsLoading(false)
+        return
+      }
 
-      if (accountType === "agent" && authData.user) {
-        // First ensure user record exists
-        await supabase.from("users").upsert(
-          {
-            id: authData.user.id,
-            email: email,
-            name: name,
-            phone: phone,
-            role: "agent",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" },
-        )
+      if (!authData.user) {
+        setError("Failed to create account")
+        setIsLoading(false)
+        return
+      }
 
-        // Create agent record
-        const { error: agentError } = await supabase.from("agents").insert({
-          user_id: authData.user.id,
-          agency_name: agencyName || name,
-          city: city,
-          region: region,
-          phone: phone,
-          alternate_phone: alternatePhone || null,
-          bio: bio || null,
-          profile_image: profileImage,
-          kyc_type: kycType,
-          kyc_document_url: kycDocumentUrl,
-          status: "pending",
-          brix_points: 50, // Welcome bonus
-          total_listings: 0,
-          total_leads: 0,
-          total_views: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+      // Create additional records based on account type
+      if (accountType === "agent") {
+        const result = await registerAgent({
+          userId: authData.user.id,
+          agencyName: agencyName || name,
+          city,
+          region,
+          phone,
+          alternatePhone,
+          bio,
+          specialization: [],
         })
 
-        if (agentError) {
-          console.error("Error creating agent record:", agentError)
-          // Don't throw - user is created, agent record can be retried
+        if (!result.success) {
+          setError(result.error || "Failed to create agent profile")
+          setIsLoading(false)
+          return
         }
+
+        toast({
+          title: "Agent Account Created",
+          description: "Your registration is under review. You'll be notified when approved.",
+        })
+      } else if (accountType === "owner") {
+        const result = await registerPropertyOwner({
+          fullName,
+          email,
+          phone,
+          kycType: ownerKycType,
+          kycDocumentUrl: ownerKycDocument,
+          propertyPapersUrl: propertyPapers,
+          address,
+          city: ownerCity,
+          region: ownerRegion,
+        })
+
+        if (!result.success) {
+          setError(result.error || "Failed to create owner profile")
+          setIsLoading(false)
+          return
+        }
+
+        toast({
+          title: "Owner Account Created",
+          description: "Your account has been created. Please verify your email to continue.",
+        })
       }
 
       router.push("/auth/sign-up-success")
-    } catch (error: unknown) {
-      console.error("Signup error:", error)
-      setError(error instanceof Error ? error.message : "An error occurred")
+    } catch (err) {
+      console.error("[v0] Sign up error:", err)
+      setError(err instanceof Error ? err.message : "An error occurred during sign up")
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleGoogleSignUp = async () => {
-    const supabase = createClient()
-    setIsGoogleLoading(true)
-    setError(null)
-
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || `${window.location.origin}/auth/callback`,
-        },
-      })
-      if (error) {
-        if (
-          error.message.includes("provider") ||
-          error.message.includes("not enabled") ||
-          error.message.includes("Unsupported")
-        ) {
-          throw new Error("Google Sign-Up is currently unavailable. Please use email/password.")
-        }
-        throw error
-      }
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred with Google sign up")
-      setIsGoogleLoading(false)
-    }
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 py-8 bg-gradient-to-b from-primary/5 to-background">
-      <div className="w-full max-w-lg">
-        <div className="flex flex-col items-center mb-6">
-          <Link href="/">
-            <Image
-              src="/images/odibrix-logo.jpg"
-              alt="OdiBrix"
-              width={100}
-              height={100}
-              className="rounded-full shadow-lg"
-            />
+    <div className="min-h-screen bg-gradient-to-b from-primary/5 to-background py-12 px-4">
+      <div className="max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <Link href="/" className="flex justify-center mb-4">
+            <Image src="/images/odibrix-logo.jpg" alt="OdiBrix" width={80} height={80} className="rounded-full" />
           </Link>
-          <h1 className="text-2xl font-serif font-bold mt-4">Join OdiBrix</h1>
-          <p className="text-muted-foreground text-sm mt-1">Create your account today</p>
+          <h1 className="text-4xl font-serif font-bold mb-2">Create Account</h1>
+          <p className="text-muted-foreground">Join OdiBrix as a Customer, Agent, or Property Owner</p>
         </div>
 
-        <Card className="shadow-xl">
-          <CardHeader className="text-center pb-2">
-            <CardTitle className="text-2xl">Create Account</CardTitle>
-            <CardDescription>Choose your account type to get started</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <Tabs
-              value={accountType}
-              onValueChange={(v) => setAccountType(v as "customer" | "agent")}
-              className="w-full"
-            >
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="customer" className="gap-2">
+        {error && (
+          <Card className="mb-6 border-destructive/20 bg-destructive/10">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="h-5 w-5 text-destructive" />
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardContent className="p-6">
+            <Tabs value={accountType} onValueChange={(v: any) => setAccountType(v)} className="w-full">
+              <TabsList className="grid w-full grid-cols-3 mb-6">
+                <TabsTrigger value="customer" className="flex items-center gap-2">
                   <Home className="h-4 w-4" />
-                  Customer
+                  <span className="hidden sm:inline">Customer</span>
                 </TabsTrigger>
-                <TabsTrigger value="agent" className="gap-2">
+                <TabsTrigger value="agent" className="flex items-center gap-2">
                   <Briefcase className="h-4 w-4" />
-                  Agent
+                  <span className="hidden sm:inline">Agent</span>
+                </TabsTrigger>
+                <TabsTrigger value="owner" className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Owner</span>
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="customer" className="mt-4 space-y-3">
-                <div className="bg-primary/5 rounded-lg p-3">
-                  <p className="text-sm font-medium text-primary mb-2">Customer Benefits:</p>
-                  <ul className="text-xs text-muted-foreground space-y-1">
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      Browse all properties
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      Save favorites
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      Book property visits
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      Get personalized recommendations
-                    </li>
-                  </ul>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="agent" className="mt-4 space-y-3">
-                <div className="bg-accent/10 rounded-lg p-3">
-                  <p className="text-sm font-medium text-accent mb-2">Agent Benefits:</p>
-                  <ul className="text-xs text-muted-foreground space-y-1">
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      List and manage properties
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      Connect with customers
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      Track leads and inquiries
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-3 w-3 text-green-500" />
-                      Earn Brix points and commissions
-                    </li>
-                  </ul>
-                </div>
-              </TabsContent>
-            </Tabs>
-
-            {/* Only show Google for customers */}
-            {accountType === "customer" && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full h-11 gap-3 text-sm font-medium bg-white hover:bg-gray-50 border-2"
-                  onClick={handleGoogleSignUp}
-                  disabled={isGoogleLoading}
-                >
-                  {isGoogleLoading ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <svg viewBox="0 0 24 24" className="h-5 w-5">
-                      <path
-                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                        fill="#4285F4"
-                      />
-                      <path
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                        fill="#34A853"
-                      />
-                      <path
-                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                        fill="#FBBC05"
-                      />
-                      <path
-                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                        fill="#EA4335"
-                      />
-                    </svg>
-                  )}
-                  Continue with Google
-                </Button>
-
-                <div className="relative">
-                  <Separator />
-                  <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs text-muted-foreground">
-                    or sign up with email
-                  </span>
-                </div>
-              </>
-            )}
-
-            <form onSubmit={handleSignUp} className="space-y-3">
-              {/* Basic fields for both */}
-              <div className="space-y-1.5">
-                <Label htmlFor="name">Full Name *</Label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="Your Name"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="email">Email *</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="phone">Phone Number *</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="+91 9876543210"
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-
-              {/* Agent-specific fields */}
-              {accountType === "agent" && (
-                <>
-                  <Separator className="my-4" />
-                  <p className="text-sm font-medium text-muted-foreground">Agent Details (Required)</p>
-
-                  {/* Profile Photo */}
-                  <div className="space-y-1.5">
-                    <Label>
-                      Profile Photo * <span className="text-xs text-muted-foreground">(Required)</span>
-                    </Label>
-                    <ImageUpload value={profileImage} onChange={setProfileImage} label="Upload your photo" />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="agencyName">Agency/Business Name</Label>
+              {/* Customer Tab */}
+              <TabsContent value="customer">
+                <form onSubmit={handleSignUp} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-name">Full Name</Label>
                     <Input
-                      id="agencyName"
-                      type="text"
-                      placeholder="Your agency name (optional)"
-                      value={agencyName}
-                      onChange={(e) => setAgencyName(e.target.value)}
-                      className="h-10"
+                      id="customer-name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="John Doe"
+                      required
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-email">Email Address</Label>
+                    <Input
+                      id="customer-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-phone">Phone Number</Label>
+                    <Input
+                      id="customer-phone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91 XXXXX XXXXX"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-password">Password</Label>
+                    <Input
+                      id="customer-password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-confirm">Confirm Password</Label>
+                    <Input
+                      id="customer-confirm"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating Account...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Create Customer Account
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </TabsContent>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="city">City *</Label>
+              {/* Agent Tab */}
+              <TabsContent value="agent">
+                <form onSubmit={handleSignUp} className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
+                  <div className="space-y-2">
+                    <Label>Profile Photo *</Label>
+                    <ImageUpload
+                      values={profileImage ? [profileImage] : []}
+                      onChange={(imgs) => setProfileImage(imgs[0] || "")}
+                      maxImages={1}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="agent-name">Full Name *</Label>
+                    <Input
+                      id="agent-name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Your name"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="agency-name">Agency/Company Name *</Label>
+                    <Input
+                      id="agency-name"
+                      value={agencyName}
+                      onChange={(e) => setAgencyName(e.target.value)}
+                      placeholder="Your agency name"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="agent-email">Email Address *</Label>
+                    <Input
+                      id="agent-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="agent-phone">Phone Number *</Label>
+                    <Input
+                      id="agent-phone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91 XXXXX XXXXX"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="alt-phone">Alternate Phone</Label>
+                    <Input
+                      id="alt-phone"
+                      type="tel"
+                      value={alternatePhone}
+                      onChange={(e) => setAlternatePhone(e.target.value)}
+                      placeholder="+91 XXXXX XXXXX"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="agent-city">City *</Label>
                       <Input
-                        id="city"
-                        type="text"
-                        placeholder="e.g., Bhubaneswar"
-                        required
+                        id="agent-city"
                         value={city}
                         onChange={(e) => setCity(e.target.value)}
-                        className="h-10"
+                        placeholder="Your city"
+                        required
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="region">Region *</Label>
-                      <Select value={region} onValueChange={setRegion} required>
-                        <SelectTrigger className="h-10">
+                    <div className="space-y-2">
+                      <Label htmlFor="agent-region">Region *</Label>
+                      <Select value={region} onValueChange={setRegion}>
+                        <SelectTrigger>
                           <SelectValue placeholder="Select region" />
                         </SelectTrigger>
                         <SelectContent>
@@ -412,127 +408,224 @@ export default function SignUpPage() {
                       </Select>
                     </div>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="alternatePhone">Alternate Phone</Label>
-                    <Input
-                      id="alternatePhone"
-                      type="tel"
-                      placeholder="+91 9876543210"
-                      value={alternatePhone}
-                      onChange={(e) => setAlternatePhone(e.target.value)}
-                      className="h-10"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bio">Bio / About You</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="agent-bio">Bio</Label>
                     <Textarea
-                      id="bio"
-                      placeholder="Tell us about your experience in real estate..."
+                      id="agent-bio"
                       value={bio}
                       onChange={(e) => setBio(e.target.value)}
+                      placeholder="Tell us about your experience..."
                       rows={3}
                     />
                   </div>
-
-                  {/* KYC Document */}
-                  <Separator className="my-4" />
-                  <p className="text-sm font-medium text-muted-foreground">KYC Verification (Required)</p>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="kycType">KYC Document Type *</Label>
-                    <Select value={kycType} onValueChange={setKycType} required>
-                      <SelectTrigger className="h-10">
-                        <SelectValue placeholder="Select document type" />
+                  <div className="space-y-2">
+                    <Label htmlFor="kyc-type">KYC Type *</Label>
+                    <Select value={kycType} onValueChange={setKycType}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select KYC document type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="aadhaar">Aadhaar Card</SelectItem>
-                        <SelectItem value="pan">PAN Card</SelectItem>
-                        <SelectItem value="voter_id">Voter ID</SelectItem>
-                        <SelectItem value="driving_license">Driving License</SelectItem>
+                        <SelectItem value="aadhar">Aadhar</SelectItem>
+                        <SelectItem value="pan">PAN</SelectItem>
                         <SelectItem value="passport">Passport</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-1.5">
-                    <Label>
-                      KYC Document * <span className="text-xs text-muted-foreground">(Upload clear image)</span>
-                    </Label>
-                    <ImageUpload value={kycDocumentUrl} onChange={setKycDocumentUrl} label="Upload KYC document" />
+                  <div className="space-y-2">
+                    <Label>KYC Document *</Label>
+                    <ImageUpload
+                      values={kycDocumentUrl ? [kycDocumentUrl] : []}
+                      onChange={(imgs) => setKycDocumentUrl(imgs[0] || "")}
+                      maxImages={1}
+                    />
                   </div>
-
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-                    <p className="font-medium mb-1">Note:</p>
-                    <ul className="list-disc list-inside space-y-0.5">
-                      <li>Your account will be reviewed by our team</li>
-                      <li>You will receive 50 Brix points as welcome bonus</li>
-                      <li>Approval typically takes 24-48 hours</li>
-                    </ul>
+                  <div className="space-y-2">
+                    <Label htmlFor="agent-password">Password *</Label>
+                    <Input
+                      id="agent-password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
                   </div>
-                </>
-              )}
+                  <div className="space-y-2">
+                    <Label htmlFor="agent-confirm">Confirm Password *</Label>
+                    <Input
+                      id="agent-confirm"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating Account...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Create Agent Account
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </TabsContent>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="password">Password *</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Min 6 chars"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="h-10"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirmPassword">Confirm *</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    placeholder="Repeat"
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="h-10"
-                  />
-                </div>
-              </div>
+              {/* Owner Tab */}
+              <TabsContent value="owner">
+                <form onSubmit={handleSignUp} className="space-y-4 max-h-[60vh] overflow-y-auto pr-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-name">Full Name *</Label>
+                    <Input
+                      id="owner-name"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="Your full name"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-email">Email Address *</Label>
+                    <Input
+                      id="owner-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-phone">Phone Number *</Label>
+                    <Input
+                      id="owner-phone"
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91 XXXXX XXXXX"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-address">Property Address *</Label>
+                    <Textarea
+                      id="owner-address"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="Full address of your property"
+                      rows={3}
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="owner-city">City *</Label>
+                      <Input
+                        id="owner-city"
+                        value={ownerCity}
+                        onChange={(e) => setOwnerCity(e.target.value)}
+                        placeholder="City"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="owner-region">Region *</Label>
+                      <Select value={ownerRegion} onValueChange={setOwnerRegion}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select region" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REGIONS.map((r) => (
+                            <SelectItem key={r} value={r}>
+                              {r}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-kyc">KYC Type *</Label>
+                    <Select value={ownerKycType} onValueChange={setOwnerKycType}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select KYC type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="aadhar">Aadhar</SelectItem>
+                        <SelectItem value="pan">PAN</SelectItem>
+                        <SelectItem value="passport">Passport</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>KYC Document *</Label>
+                    <ImageUpload
+                      values={ownerKycDocument ? [ownerKycDocument] : []}
+                      onChange={(imgs) => setOwnerKycDocument(imgs[0] || "")}
+                      maxImages={1}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Property Documents (Ownership Proof, Permission, etc.) *</Label>
+                    <ImageUpload
+                      values={propertyPapers}
+                      onChange={setPropertyPapers}
+                      maxImages={5}
+                      label="Upload property documents"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-password">Password *</Label>
+                    <Input
+                      id="owner-password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="owner-confirm">Confirm Password *</Label>
+                    <Input
+                      id="owner-confirm"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating Account...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Create Owner Account
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </TabsContent>
+            </Tabs>
 
-              {error && (
-                <div className="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
-                  <p className="text-xs text-destructive flex items-center gap-2">
-                    <AlertCircle className="h-3.5 w-3.5" />
-                    {error}
-                  </p>
-                </div>
-              )}
-
-              <Button type="submit" className="w-full h-10" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating account...
-                  </>
-                ) : (
-                  `Create ${accountType === "customer" ? "Customer" : "Agent"} Account`
-                )}
-              </Button>
-            </form>
-
-            <div className="text-center space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Already have an account?{" "}
-                <Link href="/auth/login" className="text-primary font-medium hover:underline">
-                  Sign in
-                </Link>
-              </p>
-              <Link href="/" className="text-sm text-muted-foreground hover:text-foreground block">
-                Back to Website
+            <Separator className="my-6" />
+            <p className="text-center text-sm text-muted-foreground">
+              Already have an account?{" "}
+              <Link href="/auth/login" className="text-accent hover:underline font-medium">
+                Sign in here
               </Link>
-            </div>
+            </p>
           </CardContent>
         </Card>
       </div>

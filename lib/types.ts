@@ -149,3 +149,44 @@ export interface EmailTemplate {
   is_active: boolean
   created_at: string
 }
+
+export interface PropertyOwner {
+  id: string
+  user_id: string
+  created_at: string
+  updated_at: string
+  full_name: string
+  email: string
+  phone: string
+  kyc_type?: "aadhar" | "pan" | "passport"
+  kyc_document_url?: string
+  kyc_status: "pending" | "verified" | "rejected"
+  property_papers_url?: string[]
+  papers_status: "pending" | "verified" | "rejected"
+  registration_type: "self" | "agent_referral"
+  referring_agent_id?: string
+  profile_image_url?: string
+  bio?: string
+  address?: string
+  city?: string
+  region?: string
+  status: "active" | "inactive" | "suspended"
+  priority_label: "Low" | "Mid" | "High"
+  last_contacted_at?: string
+  total_emails_sent: number
+  total_properties: number
+  notes?: string
+}
+
+export interface OwnerInsights {
+  id: string
+  owner_id: string
+  property_id: string
+  created_at: string
+  leads_count: number
+  views_count: number
+  inquiries_count: number
+  rental_deals: number
+  sales_deals: number
+  last_inquiry_date?: string
+}

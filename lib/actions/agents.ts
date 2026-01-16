@@ -3,75 +3,49 @@
 import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 
-export async function getAgents(filters?: {
-  region?: string
-  status?: string
-  search?: string
+export async function registerAgent(formData: {
+  userId: string
+  agencyName: string
+  city: string
+  region: string
+  phone: string
+  alternatePhone?: string
+  bio?: string
+  specialization?: string[]
 }) {
-  const supabase = await createClient()
+  try {
+    const supabase = await createClient()
 
-  let query = supabase
-    .from("agents")
-    .select(`
-      *,
-      users!agents_user_id_fkey (
-        name,
-        email
-      )
-    `)
-    .order("brix_points", { ascending: false })
+    const { data, error } = await supabase
+      .from("agents")
+      .insert({
+        user_id: formData.userId,
+        agency_name: formData.agencyName,
+        city: formData.city,
+        region: formData.region,
+        phone: formData.phone,
+        alternate_phone: formData.alternatePhone,
+        bio: formData.bio,
+        specialization: formData.specialization,
+        status: "pending",
+        brix_points: 50, // Welcome bonus
+        commission_rate: 2,
+        rating: 0,
+        review_count: 0,
+      })
+      .select()
+      .single()
 
-  if (filters?.region && filters.region !== "all") {
-    query = query.eq("region", filters.region)
-  }
+    if (error) {
+      console.error("[v0] Agent registration error:", error)
+      return { success: false, error: error.message }
+    }
 
-  if (filters?.status && filters.status !== "all") {
-    query = query.eq("status", filters.status)
-  }
-
-  if (filters?.search) {
-    query = query.or(`agency_name.ilike.%${filters.search}%,city.ilike.%${filters.search}%`)
-  }
-
-  const { data, error } = await query
-
-  if (error) {
-    console.error("Error fetching agents:", error)
-    return []
-  }
-
-  // Flatten the user data
-  return data.map((agent: any) => ({
-    ...agent,
-    name: agent.users?.name || agent.agency_name,
-    email: agent.users?.email,
-  }))
-}
-
-export async function getAgentById(id: string) {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
-    .from("agents")
-    .select(`
-      *,
-      users!agents_user_id_fkey (
-        name,
-        email
-      )
-    `)
-    .eq("id", id)
-    .single()
-
-  if (error) {
-    console.error("Error fetching agent:", error)
-    return null
-  }
-
-  return {
-    ...data,
-    name: data.users?.name || data.agency_name,
-    email: data.users?.email,
+    revalidatePath("/agent/dashboard")
+    return { success: true, agent: data }
+  } catch (error) {
+    console.error("[v0] Agent registration exception:", error)
+    return { success: false, error: error instanceof Error ? error.message : "Failed to register agent" }
   }
 }
 
@@ -81,106 +55,62 @@ export async function getAgentByUserId(userId: string) {
   const { data, error } = await supabase.from("agents").select("*").eq("user_id", userId).single()
 
   if (error) {
-    console.error("Error fetching agent:", error)
+    console.error("[v0] Agent fetch error:", error)
     return null
   }
 
   return data
 }
 
-export async function updateAgentStatus(id: string, status: string, reason?: string) {
+export async function getAgentReferrals(agentId: string) {
   const supabase = await createClient()
 
-  const updateData: any = {
-    status,
-    updated_at: new Date().toISOString(),
-  }
-
-  if (status === "approved") {
-    updateData.approved_at = new Date().toISOString()
-  }
-
-  if (status === "suspended" && reason) {
-    updateData.suspension_reason = reason
-  }
-
-  const { error } = await supabase.from("agents").update(updateData).eq("id", id)
+  const { data, error } = await supabase
+    .from("property_owners")
+    .select("*")
+    .eq("referring_agent_id", agentId)
+    .order("created_at", { ascending: false })
 
   if (error) {
-    console.error("Error updating agent status:", error)
-    return { success: false, error: error.message }
+    console.error("[v0] Referrals fetch error:", error)
+    return []
   }
 
-  revalidatePath("/admin/agents")
-  return { success: true }
+  return data
 }
 
-export async function awardBrixPoints(agentId: string, points: number, reason: string) {
+export async function getReferralStats(agentId: string) {
   const supabase = await createClient()
 
-  // Get current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Get referred owners
+  const { data: owners } = await supabase.from("property_owners").select("id").eq("referring_agent_id", agentId)
 
-  // Insert into brix history
-  const { error: historyError } = await supabase.from("agent_brix_history").insert({
-    agent_id: agentId,
-    points,
-    reason,
-    awarded_by: user?.id,
-  })
+  // Get Brix history for this agent
+  const { data: brixHistory } = await supabase
+    .from("agent_brix_history")
+    .select("*")
+    .eq("agent_id", agentId)
+    .contains("reason", "referral")
 
-  if (historyError) {
-    console.error("Error inserting brix history:", historyError)
-    return { success: false, error: historyError.message }
+  return {
+    totalReferrals: owners?.length || 0,
+    brixEarned: brixHistory?.reduce((sum, h) => sum + h.points, 0) || 0,
   }
-
-  // Update agent's total points
-  const { data: agent } = await supabase.from("agents").select("brix_points").eq("id", agentId).single()
-
-  const newPoints = (agent?.brix_points || 0) + points
-
-  const { error: updateError } = await supabase
-    .from("agents")
-    .update({ brix_points: newPoints, updated_at: new Date().toISOString() })
-    .eq("id", agentId)
-
-  if (updateError) {
-    console.error("Error updating agent points:", updateError)
-    return { success: false, error: updateError.message }
-  }
-
-  revalidatePath("/admin/agents")
-  return { success: true, newTotal: newPoints }
 }
 
-export async function setBestAgentOfMonth(agentId: string, month: string) {
+export async function generateReferralLink(agentId: string) {
   const supabase = await createClient()
 
-  // Reset previous best agent
-  await supabase.from("agents").update({ is_best_agent: false }).eq("is_best_agent", true)
+  // Get agent's referral code
+  const { data } = await supabase.from("agents").select("referral_code").eq("id", agentId).single()
 
-  // Set new best agent
-  const { error } = await supabase
-    .from("agents")
-    .update({
-      is_best_agent: true,
-      best_agent_month: month,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", agentId)
-
-  if (error) {
-    console.error("Error setting best agent:", error)
-    return { success: false, error: error.message }
+  if (!data?.referral_code) {
+    return null
   }
 
-  // Award bonus points
-  await awardBrixPoints(agentId, 500, `Best Agent of the Month - ${month}`)
-
-  revalidatePath("/admin/agents")
-  return { success: true }
+  // Generate link with agent referral code
+  const baseUrl = process.env.NEXT_PUBLIC_DOMAIN || "https://odibrix.com"
+  return `${baseUrl}/auth/sign-up?ref=${data.referral_code}`
 }
 
 export async function getBrixHistory(agentId: string) {
@@ -193,106 +123,161 @@ export async function getBrixHistory(agentId: string) {
     .order("created_at", { ascending: false })
 
   if (error) {
-    console.error("Error fetching brix history:", error)
+    console.error("[v0] Brix history fetch error:", error)
     return []
   }
 
   return data
 }
 
+export async function getAgents() {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase.from("agents").select("*").order("created_at", { ascending: false })
+
+  if (error) {
+    console.error("[v0] Get agents error:", error)
+    return []
+  }
+
+  return data || []
+}
+
 export async function getAgentStats() {
   const supabase = await createClient()
 
-  const { data: agents } = await supabase.from("agents").select("status, region, brix_points, total_sales")
+  // Get total agents
+  const { count: totalAgents } = await supabase.from("agents").select("*", { count: "exact", head: true })
 
-  const stats = {
-    total: agents?.length || 0,
-    pending: agents?.filter((a) => a.status === "pending").length || 0,
-    approved: agents?.filter((a) => a.status === "approved").length || 0,
-    suspended: agents?.filter((a) => a.status === "suspended").length || 0,
-    totalBrixAwarded: agents?.reduce((sum, a) => sum + (a.brix_points || 0), 0) || 0,
-    totalSales: agents?.reduce((sum, a) => sum + Number(a.total_sales || 0), 0) || 0,
-    regionBreakdown: {} as Record<string, number>,
+  // Get pending approvals
+  const { count: pendingApprovals } = await supabase
+    .from("agents")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "pending")
+
+  // Get active agents
+  const { count: activeAgents } = await supabase
+    .from("agents")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "active")
+
+  // Get total Brix awarded
+  const { data: brixData } = await supabase.from("agent_brix_history").select("points")
+
+  const totalBrixAwarded = brixData?.reduce((sum, h) => sum + h.points, 0) || 0
+
+  return {
+    totalAgents: totalAgents || 0,
+    pendingApprovals: pendingApprovals || 0,
+    activeAgents: activeAgents || 0,
+    totalBrixAwarded,
   }
-
-  agents?.forEach((agent) => {
-    if (agent.region) {
-      stats.regionBreakdown[agent.region] = (stats.regionBreakdown[agent.region] || 0) + 1
-    }
-  })
-
-  return stats
 }
 
 export async function getRegions() {
   const supabase = await createClient()
 
-  const { data } = await supabase.from("agents").select("region").not("region", "is", null)
-
-  const regions = [...new Set(data?.map((a) => a.region).filter(Boolean))]
-  return regions as string[]
-}
-
-export async function registerAgent(formData: {
-  userId: string
-  agencyName: string
-  city: string
-  region: string
-  phone: string
-  alternatePhone?: string
-  bio?: string
-  specialization?: string[]
-}) {
-  const supabase = await createClient()
-
-  // Generate referral code
-  const referralCode = `ODB${Date.now().toString(36).toUpperCase()}`
-
-  const { data, error } = await supabase
-    .from("agents")
-    .insert({
-      user_id: formData.userId,
-      agency_name: formData.agencyName,
-      city: formData.city,
-      region: formData.region,
-      phone: formData.phone,
-      alternate_phone: formData.alternatePhone,
-      bio: formData.bio,
-      specialization: formData.specialization,
-      referral_code: referralCode,
-      status: "pending",
-      brix_points: 50, // Welcome bonus
-      total_listings: 0,
-      total_leads: 0,
-      total_views: 0,
-    })
-    .select()
-    .single()
+  const { data, error } = await supabase.from("agents").select("region").not("region", "is", null)
 
   if (error) {
-    console.error("Error registering agent:", error)
-    return { success: false, error: error.message }
+    console.error("[v0] Get regions error:", error)
+    return []
   }
 
-  return { success: true, agent: data }
+  // Get unique regions
+  const regions = [...new Set(data?.map((d) => d.region).filter(Boolean))] as string[]
+  return regions.sort()
 }
 
-export async function updateAgentProfile(agentId: string, formData: any) {
-  const supabase = await createClient()
+export async function updateAgentStatus(agentId: string, status: "active" | "pending" | "suspended" | "rejected") {
+  try {
+    const supabase = await createClient()
 
-  const { error } = await supabase
-    .from("agents")
-    .update({
-      ...formData,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", agentId)
+    const { data, error } = await supabase
+      .from("agents")
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq("id", agentId)
+      .select()
+      .single()
 
-  if (error) {
-    console.error("Error updating agent:", error)
-    return { success: false, error: error.message }
+    if (error) {
+      console.error("[v0] Update agent status error:", error)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath("/admin/agents")
+    return { success: true, agent: data }
+  } catch (error) {
+    console.error("[v0] Update agent status exception:", error)
+    return { success: false, error: error instanceof Error ? error.message : "Failed to update agent status" }
   }
+}
 
-  revalidatePath("/agent/dashboard")
-  return { success: true }
+export async function awardBrixPoints(agentId: string, points: number, reason: string) {
+  try {
+    const supabase = await createClient()
+
+    // Update agent Brix points
+    const { data: agent } = await supabase.from("agents").select("brix_points").eq("id", agentId).single()
+
+    const newBrixPoints = (agent?.brix_points || 0) + points
+
+    const { error: updateError } = await supabase
+      .from("agents")
+      .update({ brix_points: newBrixPoints, updated_at: new Date().toISOString() })
+      .eq("id", agentId)
+
+    if (updateError) throw updateError
+
+    // Create history record
+    const { error: historyError } = await supabase.from("agent_brix_history").insert({
+      agent_id: agentId,
+      points,
+      reason,
+      created_at: new Date().toISOString(),
+    })
+
+    if (historyError) throw historyError
+
+    revalidatePath("/admin/agents")
+    revalidatePath("/admin/brix")
+
+    return { success: true, newBrixPoints }
+  } catch (error) {
+    console.error("[v0] Award Brix points error:", error)
+    return { success: false, error: error instanceof Error ? error.message : "Failed to award Brix points" }
+  }
+}
+
+export async function setBestAgentOfMonth(agentId: string) {
+  try {
+    const supabase = await createClient()
+
+    // Clear previous best agent
+    const { error: clearError } = await supabase
+      .from("agents")
+      .update({ is_best_agent_of_month: false, updated_at: new Date().toISOString() })
+      .eq("is_best_agent_of_month", true)
+
+    if (clearError) console.error("[v0] Clear best agent error:", clearError)
+
+    // Set new best agent
+    const { error: setError } = await supabase
+      .from("agents")
+      .update({ is_best_agent_of_month: true, updated_at: new Date().toISOString() })
+      .eq("id", agentId)
+
+    if (setError) throw setError
+
+    // Award bonus Brix points
+    await awardBrixPoints(agentId, 500, "Best Agent of Month Award")
+
+    revalidatePath("/admin/agents")
+    revalidatePath("/agents")
+
+    return { success: true }
+  } catch (error) {
+    console.error("[v0] Set best agent error:", error)
+    return { success: false, error: error instanceof Error ? error.message : "Failed to set best agent" }
+  }
 }

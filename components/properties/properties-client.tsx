@@ -9,7 +9,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AnimatedButton } from "@/components/ui/animated-button"
 import { AnimatedCard } from "@/components/ui/animated-card"
 import { PropertyBadge } from "@/components/ui/property-badge"
-import { MapPin, BedDouble, Bath, Maximize, Search, Grid3X3, List, ArrowRight, SlidersHorizontal } from "lucide-react"
+import {
+  MapPin,
+  BedDouble,
+  Bath,
+  Maximize,
+  Search,
+  Grid3X3,
+  List,
+  ArrowRight,
+  SlidersHorizontal,
+  Star,
+} from "lucide-react"
 import Link from "next/link"
 import type { Property } from "@/lib/types"
 
@@ -37,22 +48,46 @@ export function PropertiesClient({ properties }: PropertiesClientProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [propertyType, setPropertyType] = useState(typeFromUrl || "all")
   const [priceRange, setPriceRange] = useState("all")
+  const [sortBy, setSortBy] = useState("newest")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [showFilters, setShowFilters] = useState(false)
+  const [showVerifiedOnly, setShowVerifiedOnly] = useState(false)
 
-  const filteredProperties = properties.filter((property) => {
-    const matchesSearch =
-      property.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (property.location?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
-    const matchesType = propertyType === "all" || property.property_type === propertyType
-    let matchesPrice = true
-    const price = property.price || 0
-    if (priceRange === "under-50") matchesPrice = price < 5000000
-    else if (priceRange === "50-1cr") matchesPrice = price >= 5000000 && price <= 10000000
-    else if (priceRange === "above-1cr") matchesPrice = price > 10000000
+  const filteredProperties = properties
+    .filter((property) => {
+      const matchesSearch =
+        property.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (property.location?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
+      const matchesType = propertyType === "all" || property.property_type === propertyType
+      let matchesPrice = true
+      const price = property.price || 0
+      if (priceRange === "under-50") matchesPrice = price < 5000000
+      else if (priceRange === "50-1cr") matchesPrice = price >= 5000000 && price <= 10000000
+      else if (priceRange === "above-1cr") matchesPrice = price > 10000000
 
-    return matchesSearch && matchesType && matchesPrice
-  })
+      const matchesVerified = !showVerifiedOnly || property.featured
+
+      return matchesSearch && matchesType && matchesPrice && matchesVerified
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "newest":
+          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        case "price-low":
+          return (a.price || 0) - (b.price || 0)
+        case "price-high":
+          return (b.price || 0) - (a.price || 0)
+        case "views":
+          return (b.view_count || 0) - (a.view_count || 0)
+        default:
+          return 0
+      }
+    })
+
+  // Separate verified and regular properties
+  const verifiedProperties = filteredProperties.filter((p) => p.featured)
+  const regularProperties = filteredProperties.filter((p) => !p.featured)
+  const allDisplayProperties = [...verifiedProperties, ...regularProperties]
 
   const formatPrice = (price?: number) => {
     if (!price) return "Price on Request"
@@ -61,7 +96,6 @@ export function PropertiesClient({ properties }: PropertiesClientProps) {
     return `₹${price.toLocaleString()}`
   }
 
-  // Assign badge types based on property features
   const getBadgeType = (property: Property, index: number): "hot" | "premium" | "verified" | null => {
     if (property.featured) return "premium"
     if (index % 3 === 0) return "hot"
@@ -88,7 +122,6 @@ export function PropertiesClient({ properties }: PropertiesClientProps) {
           </p>
         </motion.div>
 
-        {/* Filters with animation */}
         <motion.div
           initial="hidden"
           animate="visible"
@@ -125,7 +158,7 @@ export function PropertiesClient({ properties }: PropertiesClientProps) {
                 className={`flex flex-col md:flex-row gap-4 ${showFilters ? "block" : "hidden md:flex"}`}
               >
                 <Select value={propertyType} onValueChange={setPropertyType}>
-                  <SelectTrigger className="w-full md:w-[200px] h-12 rounded-xl border-2">
+                  <SelectTrigger className="w-full md:w-[180px] h-12 rounded-xl border-2">
                     <SelectValue placeholder="Property Type" />
                   </SelectTrigger>
                   <SelectContent className="rounded-xl">
@@ -137,8 +170,9 @@ export function PropertiesClient({ properties }: PropertiesClientProps) {
                     <SelectItem value="farmhouse">Farmhouse</SelectItem>
                   </SelectContent>
                 </Select>
+
                 <Select value={priceRange} onValueChange={setPriceRange}>
-                  <SelectTrigger className="w-full md:w-[200px] h-12 rounded-xl border-2">
+                  <SelectTrigger className="w-full md:w-[180px] h-12 rounded-xl border-2">
                     <SelectValue placeholder="Price Range" />
                   </SelectTrigger>
                   <SelectContent className="rounded-xl">
@@ -148,162 +182,219 @@ export function PropertiesClient({ properties }: PropertiesClientProps) {
                     <SelectItem value="above-1cr">Above ₹1 Crore</SelectItem>
                   </SelectContent>
                 </Select>
+
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-full md:w-[180px] h-12 rounded-xl border-2">
+                    <SelectValue placeholder="Sort By" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    <SelectItem value="newest">Newest</SelectItem>
+                    <SelectItem value="price-low">Price: Low to High</SelectItem>
+                    <SelectItem value="price-high">Price: High to Low</SelectItem>
+                    <SelectItem value="views">Most Viewed</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <AnimatedButton
+                  variant={showVerifiedOnly ? "default" : "outline"}
+                  className="w-full md:w-auto"
+                  onClick={() => setShowVerifiedOnly(!showVerifiedOnly)}
+                >
+                  <Star className="w-4 h-4 mr-2" />
+                  {showVerifiedOnly ? "Verified Only" : "All Properties"}
+                </AnimatedButton>
+
                 <div className="flex gap-2 ml-auto">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                  <AnimatedButton
+                    variant={viewMode === "grid" ? "default" : "outline"}
+                    size="icon"
                     onClick={() => setViewMode("grid")}
-                    className={`p-3 rounded-xl transition-all ${viewMode === "grid" ? "bg-accent text-accent-foreground shadow-lg" : "bg-muted hover:bg-muted/80"}`}
-                    aria-label="Grid view"
                   >
-                    <Grid3X3 className="w-5 h-5" />
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    <Grid3X3 className="w-4 h-4" />
+                  </AnimatedButton>
+                  <AnimatedButton
+                    variant={viewMode === "list" ? "default" : "outline"}
+                    size="icon"
                     onClick={() => setViewMode("list")}
-                    className={`p-3 rounded-xl transition-all ${viewMode === "list" ? "bg-accent text-accent-foreground shadow-lg" : "bg-muted hover:bg-muted/80"}`}
-                    aria-label="List view"
                   >
-                    <List className="w-5 h-5" />
-                  </motion.button>
+                    <List className="w-4 h-4" />
+                  </AnimatedButton>
                 </div>
               </motion.div>
             </AnimatePresence>
+
+            {/* Results count */}
+            <div className="text-sm text-muted-foreground">
+              Showing <span className="font-semibold text-foreground">{allDisplayProperties.length}</span> properties
+            </div>
           </div>
         </motion.div>
 
-        {/* Results Count */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="mb-6 text-muted-foreground flex items-center justify-between"
-        >
-          <span>
-            Showing <span className="font-semibold text-foreground">{filteredProperties.length}</span> properties
-          </span>
-          {(searchTerm || propertyType !== "all" || priceRange !== "all") && (
-            <AnimatedButton
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSearchTerm("")
-                setPropertyType("all")
-                setPriceRange("all")
-              }}
+        {verifiedProperties.length > 0 && (
+          <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="mb-12">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="flex items-center gap-2">
+                <Star className="w-6 h-6 text-accent fill-accent" />
+                <h2 className="text-2xl font-serif font-bold">OdiBrix Verified Properties</h2>
+              </div>
+              <div className="flex-1 h-px bg-gradient-to-r from-accent/50 to-transparent" />
+            </div>
+
+            <motion.div
+              variants={staggerContainer}
+              initial="hidden"
+              animate="visible"
+              className={`grid gap-6 ${
+                viewMode === "grid" ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
+              }`}
             >
-              Clear Filters
-            </AnimatedButton>
-          )}
-        </motion.div>
-
-        {/* Properties Grid/List */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={staggerContainer}
-          className={viewMode === "grid" ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8" : "space-y-6"}
-        >
-          <AnimatePresence mode="popLayout">
-            {filteredProperties.map((property, index) => {
-              const badgeType = getBadgeType(property, index)
-
-              return (
-                <motion.div
-                  key={property.id}
-                  layout
-                  variants={fadeInUp}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="group"
-                >
+              {verifiedProperties.map((property, index) => (
+                <motion.div key={property.id} variants={fadeInUp}>
                   <Link href={`/properties/${property.id}`}>
-                    <AnimatedCard
-                      className={`overflow-hidden border-0 shadow-premium ${viewMode === "list" ? "flex flex-col md:flex-row" : ""}`}
-                      delay={index * 0.05}
-                    >
-                      <div
-                        className={`relative overflow-hidden ${viewMode === "list" ? "md:w-80 md:shrink-0 aspect-[4/3] md:aspect-auto md:h-full" : "aspect-[4/3]"}`}
-                      >
-                        <img
-                          src={property.images?.[0] || "/placeholder.svg?height=300&width=400&query=property"}
-                          alt={property.title}
-                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                        />
-                        {/* Badges */}
-                        <div className="absolute top-4 left-4 flex flex-col gap-2">
-                          {badgeType && <PropertyBadge type={badgeType} />}
-                        </div>
-                        <div className="absolute top-4 right-4 bg-primary/90 backdrop-blur-sm text-primary-foreground px-3 py-1.5 rounded-full text-xs font-medium capitalize">
-                          {property.property_type}
-                        </div>
-                        {/* Price overlay on image */}
-                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-                          <p className="text-2xl font-bold text-white">{formatPrice(property.price)}</p>
-                        </div>
+                    <AnimatedCard className="h-full hover:shadow-premium-lg cursor-pointer border-2 border-accent/20 hover:border-accent/50">
+                      <div className="relative aspect-video overflow-hidden bg-muted">
+                        {property.images?.[0] && (
+                          <img
+                            src={property.images[0] || "/placeholder.svg"}
+                            alt={property.title}
+                            className="w-full h-full object-cover hover:scale-110 transition-transform duration-500"
+                          />
+                        )}
+                        {getBadgeType(property, index) && (
+                          <div className="absolute top-4 right-4 z-10">
+                            <PropertyBadge type={getBadgeType(property, index)!} />
+                          </div>
+                        )}
                       </div>
-                      <CardContent
-                        className={`p-6 ${viewMode === "list" ? "flex-1 flex flex-col justify-center" : ""}`}
-                      >
-                        <h3 className="text-xl font-semibold mb-2 group-hover:text-accent transition-colors">
-                          {property.title}
-                        </h3>
-                        <div className="flex items-center text-muted-foreground mb-4">
-                          <MapPin className="w-4 h-4 mr-1 text-accent" />
-                          <span className="text-sm">{property.location}</span>
+                      <CardContent className="p-6 space-y-4">
+                        <div>
+                          <h3 className="font-semibold text-lg line-clamp-2 mb-2">{property.title}</h3>
+                          <p className="text-sm text-muted-foreground flex items-center gap-1">
+                            <MapPin className="w-4 h-4" />
+                            {property.location}
+                          </p>
                         </div>
-                        <div className="flex items-center gap-4 mb-4 text-sm text-muted-foreground">
-                          {property.bedrooms && property.bedrooms > 0 && (
-                            <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-lg">
-                              <BedDouble className="w-4 h-4" />
-                              <span>{property.bedrooms}</span>
-                            </div>
-                          )}
-                          {property.bathrooms && property.bathrooms > 0 && (
-                            <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-lg">
-                              <Bath className="w-4 h-4" />
-                              <span>{property.bathrooms}</span>
-                            </div>
-                          )}
-                          {property.area_sqft && (
-                            <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-lg">
-                              <Maximize className="w-4 h-4" />
-                              <span>{property.area_sqft.toLocaleString()} sqft</span>
-                            </div>
-                          )}
+
+                        <div className="space-y-3">
+                          <p className="text-2xl font-bold text-accent">{formatPrice(property.price)}</p>
+
+                          <div className="grid grid-cols-3 gap-4 text-center py-3 border-t border-b border-muted">
+                            {property.bedrooms && property.property_type !== "commercial" && (
+                              <div>
+                                <BedDouble className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                                <p className="text-sm font-medium">{property.bedrooms} BHK</p>
+                              </div>
+                            )}
+                            {property.bathrooms && (
+                              <div>
+                                <Bath className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                                <p className="text-sm font-medium">{property.bathrooms}</p>
+                              </div>
+                            )}
+                            {property.area_sqft && (
+                              <div>
+                                <Maximize className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                                <p className="text-sm font-medium">{(property.area_sqft / 1000).toFixed(1)}k sqft</p>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center justify-end">
-                          <AnimatedButton variant="ghost" size="sm" className="group/btn">
-                            View Details
-                            <ArrowRight className="w-4 h-4 ml-1 transition-transform group-hover/btn:translate-x-1" />
-                          </AnimatedButton>
+
+                        <div className="flex items-center justify-between pt-2">
+                          <span className="text-xs text-accent font-semibold uppercase">OdiBrix Verified</span>
+                          <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors" />
                         </div>
                       </CardContent>
                     </AnimatedCard>
                   </Link>
                 </motion.div>
-              )
-            })}
-          </AnimatePresence>
-        </motion.div>
+              ))}
+            </motion.div>
+          </motion.div>
+        )}
 
-        {filteredProperties.length === 0 && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-20">
-            <div className="w-20 h-20 mx-auto mb-6 bg-muted rounded-full flex items-center justify-center">
-              <Search className="w-10 h-10 text-muted-foreground" />
-            </div>
-            <p className="text-xl font-medium mb-2">No properties found</p>
-            <p className="text-muted-foreground mb-6">Try adjusting your search or filter criteria</p>
-            <AnimatedButton
-              variant="outline"
-              className="bg-transparent"
-              onClick={() => {
-                setSearchTerm("")
-                setPropertyType("all")
-                setPriceRange("all")
-              }}
+        {/* Regular Properties */}
+        {regularProperties.length > 0 && (
+          <motion.div initial="hidden" animate="visible" variants={fadeInUp}>
+            {verifiedProperties.length > 0 && <h2 className="text-2xl font-serif font-bold mb-6">All Properties</h2>}
+
+            <motion.div
+              variants={staggerContainer}
+              initial="hidden"
+              animate="visible"
+              className={`grid gap-6 ${
+                viewMode === "grid" ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
+              }`}
             >
-              Clear All Filters
-            </AnimatedButton>
+              {regularProperties.map((property, index) => (
+                <motion.div key={property.id} variants={fadeInUp}>
+                  <Link href={`/properties/${property.id}`}>
+                    <AnimatedCard className="h-full hover:shadow-premium-lg cursor-pointer">
+                      <div className="relative aspect-video overflow-hidden bg-muted">
+                        {property.images?.[0] && (
+                          <img
+                            src={property.images[0] || "/placeholder.svg"}
+                            alt={property.title}
+                            className="w-full h-full object-cover hover:scale-110 transition-transform duration-500"
+                          />
+                        )}
+                        {getBadgeType(property, index) && (
+                          <div className="absolute top-4 right-4 z-10">
+                            <PropertyBadge type={getBadgeType(property, index)!} />
+                          </div>
+                        )}
+                      </div>
+                      <CardContent className="p-6 space-y-4">
+                        <div>
+                          <h3 className="font-semibold text-lg line-clamp-2 mb-2">{property.title}</h3>
+                          <p className="text-sm text-muted-foreground flex items-center gap-1">
+                            <MapPin className="w-4 h-4" />
+                            {property.location}
+                          </p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <p className="text-2xl font-bold text-accent">{formatPrice(property.price)}</p>
+
+                          <div className="grid grid-cols-3 gap-4 text-center py-3 border-t border-b border-muted">
+                            {property.bedrooms && property.property_type !== "commercial" && (
+                              <div>
+                                <BedDouble className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                                <p className="text-sm font-medium">{property.bedrooms} BHK</p>
+                              </div>
+                            )}
+                            {property.bathrooms && (
+                              <div>
+                                <Bath className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                                <p className="text-sm font-medium">{property.bathrooms}</p>
+                              </div>
+                            )}
+                            {property.area_sqft && (
+                              <div>
+                                <Maximize className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                                <p className="text-sm font-medium">{(property.area_sqft / 1000).toFixed(1)}k sqft</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2">
+                          <span className="text-xs text-muted-foreground font-semibold">View Details</span>
+                          <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors" />
+                        </div>
+                      </CardContent>
+                    </AnimatedCard>
+                  </Link>
+                </motion.div>
+              ))}
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* No results */}
+        {allDisplayProperties.length === 0 && (
+          <motion.div initial="hidden" animate="visible" variants={fadeInUp} className="text-center py-20">
+            <p className="text-lg text-muted-foreground">No properties found matching your criteria.</p>
           </motion.div>
         )}
       </div>

@@ -6,7 +6,17 @@ import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Menu, X, Phone, User, Home, Briefcase } from "lucide-react"
+import { Menu, X, Phone, LogOut, Settings } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import type { User } from "@supabase/supabase-js"
+import { useRouter } from "next/navigation"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -23,12 +33,63 @@ export function Navbar() {
   const [isScrolled, setIsScrolled] = React.useState(false)
   const [lastScrollY, setLastScrollY] = React.useState(0)
   const [isVisible, setIsVisible] = React.useState(true)
+  const [user, setUser] = React.useState<User | null>(null)
+  const [userRole, setUserRole] = React.useState<"customer" | "agent" | "owner" | null>(null)
+  const router = useRouter()
+
+  React.useEffect(() => {
+    const checkAuth = async () => {
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      setUser(user || null)
+
+      if (user) {
+        // Determine user role
+        const accountType = user.user_metadata?.account_type
+        if (accountType === "agent") {
+          setUserRole("agent")
+        } else if (accountType === "owner") {
+          setUserRole("owner")
+        } else {
+          setUserRole("customer")
+        }
+      }
+    }
+
+    checkAuth()
+
+    const {
+      data: { subscription },
+    } = createClient().auth.onAuthStateChange((event, session) => {
+      const currentUser = session?.user || null
+      setUser(currentUser)
+
+      if (currentUser) {
+        const accountType = currentUser.user_metadata?.account_type
+        if (accountType === "agent") {
+          setUserRole("agent")
+        } else if (accountType === "owner") {
+          setUserRole("owner")
+        } else {
+          setUserRole("customer")
+        }
+      } else {
+        setUserRole(null)
+      }
+    })
+
+    return () => {
+      subscription?.unsubscribe()
+    }
+  }, [])
 
   React.useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY
 
-      // Show/hide based on scroll direction
       if (currentScrollY > lastScrollY && currentScrollY > 100) {
         setIsVisible(false)
       } else {
@@ -42,6 +103,20 @@ export function Navbar() {
     window.addEventListener("scroll", handleScroll, { passive: true })
     return () => window.removeEventListener("scroll", handleScroll)
   }, [lastScrollY])
+
+  const handleSignOut = async () => {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    setUser(null)
+    setUserRole(null)
+    router.push("/")
+  }
+
+  const getDashboardLink = () => {
+    if (userRole === "agent") return "/agent/dashboard"
+    if (userRole === "owner") return "/owner/dashboard"
+    return "/customer/profile"
+  }
 
   return (
     <motion.nav
@@ -75,15 +150,39 @@ export function Navbar() {
             Premium Real Estate in Odisha
           </motion.span>
           <div className="flex items-center gap-4">
-            <Link href="/auth/login" className="flex items-center gap-1.5 hover:text-accent transition-colors">
-              <Home className="h-3.5 w-3.5" />
-              <span>Customer Login</span>
-            </Link>
-            <span className="opacity-50">|</span>
-            <Link href="/auth/login" className="flex items-center gap-1.5 hover:text-accent transition-colors">
-              <Briefcase className="h-3.5 w-3.5" />
-              <span>Agent Login</span>
-            </Link>
+            {!user ? (
+              <>
+                <Link href="/auth/login" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                  <span>Customer Login</span>
+                </Link>
+                <span className="opacity-50">|</span>
+                <Link href="/auth/login" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                  <span>Agent Login</span>
+                </Link>
+                <span className="opacity-50">|</span>
+                <Link href="/auth/login" className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                  <span>Owner Login</span>
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  href={getDashboardLink()}
+                  className="flex items-center gap-1.5 hover:text-accent transition-colors"
+                >
+                  <span>
+                    {userRole === "agent" ? "Agent Dashboard" : userRole === "owner" ? "Owner Portal" : "My Profile"}
+                  </span>
+                </Link>
+                <span className="opacity-50">|</span>
+                <button
+                  onClick={handleSignOut}
+                  className="flex items-center gap-1.5 hover:text-accent transition-colors"
+                >
+                  <span>Sign Out</span>
+                </button>
+              </>
+            )}
             <span className="opacity-50">|</span>
             <motion.a
               href="tel:8763022010"
@@ -146,133 +245,119 @@ export function Navbar() {
                 </Link>
               </motion.div>
             ))}
+
+            {/* Auth Buttons - Desktop */}
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.5 }}
+              className="flex items-center gap-3 ml-4 pl-4 border-l border-muted"
             >
-              <Link href="/get-floor-plan">
-                <Button className="ml-4 bg-accent hover:bg-accent/90 text-accent-foreground btn-shine relative overflow-hidden">
-                  Get Free Floor Plan
-                </Button>
-              </Link>
-            </motion.div>
-          </div>
-
-          {/* Mobile controls */}
-          <div className="flex items-center gap-3 lg:hidden">
-            <motion.a
-              href="tel:8763022010"
-              className="flex items-center justify-center w-10 h-10 rounded-full bg-accent/10"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-            >
-              <Phone className="h-5 w-5 text-accent" />
-            </motion.a>
-            <motion.button
-              onClick={() => setIsOpen(!isOpen)}
-              aria-label="Toggle menu"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              className="w-10 h-10 flex items-center justify-center"
-            >
-              <AnimatePresence mode="wait">
-                {isOpen ? (
-                  <motion.div
-                    key="close"
-                    initial={{ rotate: -90, opacity: 0 }}
-                    animate={{ rotate: 0, opacity: 1 }}
-                    exit={{ rotate: 90, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <X className="h-6 w-6" />
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="menu"
-                    initial={{ rotate: 90, opacity: 0 }}
-                    animate={{ rotate: 0, opacity: 1 }}
-                    exit={{ rotate: -90, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    <Menu className="h-6 w-6" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.button>
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {isOpen && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="lg:hidden absolute top-full left-0 right-0 bg-background/98 backdrop-blur-lg border-b shadow-premium-lg overflow-hidden"
-            >
-              <div className="flex flex-col space-y-1 px-4 py-4">
-                {navLinks.map((link, index) => (
-                  <motion.div
-                    key={link.href}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <Link
-                      href={link.href}
-                      onClick={() => setIsOpen(false)}
-                      className="block text-base font-medium hover:text-accent transition-colors py-3 border-b border-border/50"
-                    >
-                      {link.label}
-                    </Link>
-                  </motion.div>
-                ))}
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 }}
-                  className="pt-3 space-y-2"
-                >
-                  <Link
-                    href="/auth/login"
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-2 text-sm font-medium hover:text-accent transition-colors py-2"
-                  >
-                    <Home className="h-4 w-4" />
-                    Customer Login
-                  </Link>
-                  <Link
-                    href="/auth/login"
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-2 text-sm font-medium hover:text-accent transition-colors py-2"
-                  >
-                    <Briefcase className="h-4 w-4" />
-                    Agent Login
-                  </Link>
-                  <Link
-                    href="/auth/sign-up"
-                    onClick={() => setIsOpen(false)}
-                    className="flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors py-2"
-                  >
-                    <User className="h-4 w-4" />
-                    Create Account
-                  </Link>
-                </motion.div>
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-                  <Link href="/get-floor-plan" onClick={() => setIsOpen(false)}>
-                    <Button className="w-full mt-3 bg-accent hover:bg-accent/90 text-accent-foreground">
-                      Get Free Floor Plan
+              {!user ? (
+                <>
+                  <Link href="/auth/login">
+                    <Button variant="ghost" size="sm">
+                      Sign In
                     </Button>
                   </Link>
-                </motion.div>
-              </div>
+                  <Link href="/auth/sign-up">
+                    <Button size="sm" className="bg-accent hover:bg-accent/90">
+                      Sign Up
+                    </Button>
+                  </Link>
+                </>
+              ) : (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <span className="capitalize">
+                        {userRole === "agent" ? "Agent" : userRole === "owner" ? "Owner" : "Customer"}
+                      </span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem asChild>
+                      <Link href={getDashboardLink()} className="cursor-pointer flex items-center gap-2">
+                        <Settings className="h-4 w-4" />
+                        {userRole === "agent" ? "Dashboard" : userRole === "owner" ? "My Portal" : "Profile"}
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut} className="text-destructive flex items-center gap-2">
+                      <LogOut className="h-4 w-4" />
+                      Sign Out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
+
+          {/* Mobile Menu Button */}
+          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setIsOpen(!isOpen)}>
+            {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </Button>
+        </div>
       </div>
+
+      {/* Mobile Navigation */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="lg:hidden border-t bg-background"
+          >
+            <div className="container mx-auto px-4 py-4 space-y-2">
+              {navLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="block px-4 py-2 rounded-lg hover:bg-muted transition-colors"
+                  onClick={() => setIsOpen(false)}
+                >
+                  {link.label}
+                </Link>
+              ))}
+
+              <div className="pt-2 border-t space-y-2">
+                {!user ? (
+                  <>
+                    <Link href="/auth/login" onClick={() => setIsOpen(false)}>
+                      <Button variant="outline" className="w-full bg-transparent">
+                        Sign In
+                      </Button>
+                    </Link>
+                    <Link href="/auth/sign-up" onClick={() => setIsOpen(false)}>
+                      <Button className="w-full bg-accent hover:bg-accent/90">Sign Up</Button>
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link href={getDashboardLink()} onClick={() => setIsOpen(false)}>
+                      <Button variant="outline" className="w-full bg-transparent">
+                        {userRole === "agent" ? "Dashboard" : userRole === "owner" ? "My Portal" : "Profile"}
+                      </Button>
+                    </Link>
+                    <Button
+                      variant="destructive"
+                      className="w-full"
+                      onClick={() => {
+                        handleSignOut()
+                        setIsOpen(false)
+                      }}
+                    >
+                      Sign Out
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.nav>
   )
 }

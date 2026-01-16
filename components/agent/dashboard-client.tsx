@@ -48,6 +48,8 @@ import {
 } from "lucide-react"
 import type { User } from "@supabase/supabase-js"
 import type { Agent, Property, Lead } from "@/lib/types"
+import { createProperty } from "@/lib/actions/properties"
+import { useToast } from "@/hooks/use-toast"
 
 interface AgentDashboardProps {
   user: User
@@ -59,6 +61,7 @@ interface AgentDashboardProps {
 
 export function AgentDashboardClient({ user, agent, properties, leads, categories }: AgentDashboardProps) {
   const router = useRouter()
+  const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("overview")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showAddProperty, setShowAddProperty] = useState(false)
@@ -167,32 +170,33 @@ export function AgentDashboardClient({ user, agent, properties, leads, categorie
     setIsSubmitting(true)
 
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase.from("properties").insert({
+      const result = await createProperty({
         title: propertyForm.title,
         description: propertyForm.description,
         property_type: propertyForm.property_type,
-        price: propertyForm.price ? Number.parseFloat(propertyForm.price) : null,
-        area_sqft: propertyForm.area_sqft ? Number.parseInt(propertyForm.area_sqft) : null,
-        bedrooms: propertyForm.bedrooms ? Number.parseInt(propertyForm.bedrooms) : null,
-        bathrooms: propertyForm.bathrooms ? Number.parseInt(propertyForm.bathrooms) : null,
+        price: propertyForm.price,
+        area_sqft: propertyForm.area_sqft,
+        bedrooms: propertyForm.bedrooms,
+        bathrooms: propertyForm.bathrooms,
         location: propertyForm.location,
         address: propertyForm.address,
-        category_id: propertyForm.category_id || null,
-        lat: lat,
-        lng: lng,
-        images: propertyImages,
-        images_count: propertyImages.length,
-        document_urls: propertyDocuments,
+        category_id: propertyForm.category_id,
+        lat: propertyForm.lat,
+        lng: propertyForm.lng,
         amenities: propertyForm.amenities,
-        agent_id: agent?.id,
-        status: "available",
-        approval_status: "pending",
-        featured: false,
+        images: propertyImages,
+        documents: propertyDocuments,
       })
 
-      if (error) throw error
+      if (!result.success) {
+        setFormError(result.error || "Failed to add property")
+        toast({
+          title: "Error",
+          description: result.error || "Failed to add property",
+          variant: "destructive",
+        })
+        return
+      }
 
       setShowAddProperty(false)
       setPropertyForm({
@@ -212,10 +216,22 @@ export function AgentDashboardClient({ user, agent, properties, leads, categorie
       })
       setPropertyImages([])
       setPropertyDocuments([])
+
+      toast({
+        title: "Success",
+        description: "Property submitted for approval. You'll be notified when it's reviewed.",
+      })
+
       router.refresh()
     } catch (error) {
-      console.error("Error adding property:", error)
-      setFormError("Failed to add property. Please try again.")
+      console.error("[v0] Property submission error:", error)
+      const errorMsg = error instanceof Error ? error.message : "Failed to add property"
+      setFormError(errorMsg)
+      toast({
+        title: "Error",
+        description: errorMsg,
+        variant: "destructive",
+      })
     } finally {
       setIsSubmitting(false)
     }
