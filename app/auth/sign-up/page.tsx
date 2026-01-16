@@ -72,6 +72,12 @@ export default function SignUpPage() {
     setIsLoading(true)
     setError(null)
 
+    if (!email || !password) {
+      setError("Email and password are required")
+      setIsLoading(false)
+      return
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match")
       setIsLoading(false)
@@ -135,16 +141,10 @@ export default function SignUpPage() {
         },
       })
 
-      if (authError) {
-        setError(authError.message)
-        setIsLoading(false)
-        return
-      }
+      if (authError) throw authError
 
       if (!authData.user) {
-        setError("Failed to create account")
-        setIsLoading(false)
-        return
+        throw new Error("Failed to create account")
       }
 
       // Create additional records based on account type
@@ -196,9 +196,9 @@ export default function SignUpPage() {
       }
 
       router.push("/auth/sign-up-success")
-    } catch (err) {
-      console.error("[v0] Sign up error:", err)
-      setError(err instanceof Error ? err.message : "An error occurred during sign up")
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : "An error occurred during sign up")
+      console.error("[v0] Sign up error:", error)
     } finally {
       setIsLoading(false)
     }
